@@ -34,4 +34,4 @@
     make uninstall
     ```
 
-    MIT © Jeremy Wittber
+    MIT © deadquiet
