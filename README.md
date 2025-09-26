@@ -1,37 +1,62 @@
+# lamp
 
-    # lamp
+A living ASCII lamp for your terminal.  
+It needs oil or it dies after 24h, and it tracks your longest streak.
 
-    a living ascii lamp for your terminal. needs oil or dies after 24h. tracks longest streak.
+---
 
-    ## install
-    ```sh
-    git clone https://github.com/YOURUSER/lamp
-    cd lamp
-    make install
-    ```
+## Installation
 
-    ## run
-    ```sh
-    lamp          # animate
-    lamp status   # print state (json)
-    lamp reset    # wipe state
-    ```
+```sh
+git clone https://github.com/YOURUSER/lamp
+cd lamp
+make install
+```
 
-    keys in the app
-    - `a` add oil
-    - `l` light
-    - `o` snuff
-    - `q` quit
+---
 
-    ## env (optional)
-    - `LAMP_STATE` path to state json (default ~/.local/share/lamp/state.json)
-    - `LAMP_FRAMES_DIR` folder with frames (default ~/lamp)
-    - `LAMP_FPS` frames per second (default 6)
-    - `LAMP_BURN_HOURS` hours a full oil lasts (default 24)
+## Usage
 
-    ## uninstall
-    ```sh
-    make uninstall
-    ```
+```sh
+lamp           # animate
+lamp status    # print state (JSON)
+lamp reset     # wipe state
+```
 
-    MIT © deadquiet
+### Keys in the app
+- `a` — add oil  
+- `l` — light  
+- `o` — snuff  
+- `q` — quit  
+
+---
+
+## Configuration (Environment Variables)
+
+You can override defaults with environment variables:
+
+- `LAMP_STATE` — path to state JSON  
+  *Default: `~/.local/share/lamp/state.json`*
+
+- `LAMP_FRAMES_DIR` — folder with frames  
+  *Default: `~/lamp`*
+
+- `LAMP_FPS` — frames per second  
+  *Default: `6`*
+
+- `LAMP_BURN_HOURS` — hours a full oil lasts  
+  *Default: `24`*
+
+---
+
+## Uninstall
+
+```sh
+make uninstall
+```
+
+---
+
+## License
+
+MIT © [deadquiet](https://github.com/deadquiet)
