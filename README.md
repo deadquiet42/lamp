@@ -59,4 +59,4 @@ make uninstall
 
 ## License
 
-MIT © [deadquiet](https://github.com/deadquiet)
+MIT © [deadquiet](https://github.com/deadquiet42)
