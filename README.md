@@ -1,4 +1,4 @@
-\
+
     # lamp
 
     a living ascii lamp for your terminal. needs oil or dies after 24h. tracks longest streak.
