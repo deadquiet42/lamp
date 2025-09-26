@@ -1,0 +1,196 @@
+#!/usr/bin/env python3
+import curses, json, os, re, sys, time
+from pathlib import Path
+
+HOME = Path.home()
+STATE_PATH = Path(os.environ.get("LAMP_STATE", str(HOME / ".local/share/lamp/state.json")))
+FRAMES_DIR = Path(os.environ.get("LAMP_FRAMES_DIR", str(HOME / "lamp")))
+FPS = float(os.environ.get("LAMP_FPS", "6"))
+BURN_HOURS = float(os.environ.get("LAMP_BURN_HOURS", "24"))
+
+def now(): return int(time.time())
+def read_lines(p): return p.read_text().splitlines()
+
+def load_state():
+    if STATE_PATH.exists():
+        try: return json.loads(STATE_PATH.read_text())
+        except Exception: pass
+    return {"lit": False, "fuel": 0.0, "last_tick": now(), "streak_start": None}
+
+def save_state(s):
+    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    STATE_PATH.write_text(json.dumps(s))
+
+def list_flames():
+    files = sorted(FRAMES_DIR.glob("flame_*.txt"),
+                   key=lambda p: int(re.search(r"(\d+)", p.stem).group(1)) if re.search(r"(\d+)", p.stem) else 0)
+    if len(files) < 2: sys.exit("Need at least 2 flame_XX.txt in ~/lamp")
+    return [read_lines(p) for p in files]
+
+def load_base():
+    for name in ("base.txt", "stage_00.txt"):
+        p = FRAMES_DIR / name
+        if p.exists(): return read_lines(p)
+    return ["|", "|", "|"]
+
+def width(lines): return max((len(ln) for ln in lines), default=0)
+def first_content_row(lines):
+    for i, ln in enumerate(lines):
+        if ln.strip(): return i
+    return len(lines)
+def ljust_lines(lines, w): return [ln.ljust(w) for ln in lines]
+
+def human_streak(s):
+    if not s.get("streak_start") or not s.get("lit"): return "0d 0h"
+    sec = max(0, now() - s["streak_start"])
+    d = sec // 86400
+    h = (sec % 86400) // 3600
+    return f"{d}d {h}h"
+
+def advance_state(s, t):
+    burn_rate = 1.0 / max(1, int(BURN_HOURS * 3600))
+    last = s.get("last_tick") or t
+    if s.get("lit") and s.get("fuel", 0) > 0:
+        dt = max(0, t - last)
+        s["fuel"] = max(0.0, s["fuel"] - dt * burn_rate)
+        if s["fuel"] <= 0.0:
+            s["lit"] = False
+            s["streak_start"] = None
+    s["last_tick"] = t
+    return s
+
+def add_oil(s):
+    s["fuel"] = 1.0
+    save_state(s)
+    return "Oil added"
+
+def light_lamp(s):
+    if s.get("lit"): return "Already lit"
+    if s.get("fuel", 0) <= 0: return "No oil"
+    s["lit"] = True
+    s["streak_start"] = now()
+    save_state(s)
+    return "Lit"
+
+def snuff_lamp(s):
+    if not s.get("lit"): return "Already out"
+    s["lit"] = False
+    s["streak_start"] = None
+    s["last_tick"] = now()
+    save_state(s)
+    return "Snuffed"
+
+def draw_footer(stdscr, s, flash_msg=None):
+    h, w = stdscr.getmaxyx()
+    try: stdscr.hline(h - 3, 0, curses.ACS_HLINE, w)
+    except curses.error: pass
+    pct = max(0.0, min(1.0, s.get("fuel", 0.0)))
+    burn_rate = 1.0 / max(1, int(BURN_HOURS * 3600))
+    hrs_left = int((pct / burn_rate) // 3600) if s.get("lit") else 0
+    status = f"Fuel {int(pct*100)}%   ~{hrs_left}h left   |   Streak {human_streak(s)}"
+    try: stdscr.addnstr(h - 2, 1, status, max(0, w - 2))
+    except curses.error: pass
+    label = flash_msg if flash_msg else "Keys: a add oil   l light   o snuff   q quit"
+    try: stdscr.addnstr(h - 1, 1, label, max(0, w - 2))
+    except curses.error: pass
+
+def run(stdscr):
+    curses.curs_set(0)
+    if curses.has_colors():
+        curses.start_color()
+        curses.use_default_colors()
+        curses.init_pair(1, curses.COLOR_YELLOW, -1)
+        flame_pair = 1
+    else:
+        flame_pair = 0
+
+    frame_ms_active = int(max(1, 1000.0 / max(0.1, FPS)))
+    frame_ms_idle = 600
+    stdscr.nodelay(True)
+    stdscr.timeout(frame_ms_active)
+
+    flames = list_flames()
+    base = load_base()
+    seq = list(range(len(flames)))
+    order = seq + seq[-2:0:-1]
+
+    s = load_state()
+    flash_text, flash_until = None, 0
+    i = 0
+    while True:
+        t = now()
+        s = advance_state(s, t)
+        save_state(s)
+
+        w = max(width(base), width(flames[0]))
+        base_pad = ljust_lines(base, w)
+        base_top = first_content_row(base_pad)
+        fh = len(flames[0])
+        need_top = max(0, fh - base_top)
+        displayed_base = ([" " * w] * need_top) + base_pad
+        content_h = len(displayed_base)
+        content_w = max((len(x) for x in displayed_base), default=0)
+
+        stdscr.erase()
+        H, W = stdscr.getmaxyx()
+        top = max(0, (H - 4 - content_h) // 2)
+        left = max(0, (W - content_w) // 2)
+
+        for j, ln in enumerate(displayed_base):
+            y = top + j
+            if 0 <= y < H - 3:
+                try: stdscr.addstr(y, left, ln[: max(0, W - left)])
+                except curses.error: pass
+
+        if s.get("lit") and s.get("fuel", 0) > 0:
+            flame = flames[order[i % len(order)]]
+            flame = ljust_lines(flame, w)
+            for r, row in enumerate(flame):
+                y = top + (base_top + need_top - fh + r)
+                if 0 <= y < H - 3:
+                    for x, ch in enumerate(row):
+                        if ch != " ":
+                            try:
+                                if flame_pair:
+                                    stdscr.addstr(y, left + x, ch, curses.color_pair(flame_pair) | curses.A_BOLD)
+                                else:
+                                    stdscr.addstr(y, left + x, ch)
+                            except curses.error:
+                                pass
+
+        if flash_until > t: draw_footer(stdscr, s, flash_msg=flash_text)
+        else: draw_footer(stdscr, s)
+        stdscr.refresh()
+
+        if not s.get("lit") or s.get("fuel", 0) <= 0:
+            stdscr.timeout(frame_ms_idle)
+        else:
+            stdscr.timeout(frame_ms_active)
+
+        ch = stdscr.getch()
+        if ch == -1:
+            if s.get("lit") and s.get("fuel", 0) > 0:
+                i += 1
+            continue
+        if ch in (ord('q'), 27): break
+        elif ch == ord('a'):
+            flash_text, flash_until = add_oil(s), t + 1
+        elif ch == ord('l'):
+            flash_text, flash_until = light_lamp(s), t + 1
+        elif ch == ord('o'):
+            flash_text, flash_until = snuff_lamp(s), t + 1
+        i += 1
+
+def main():
+    if len(sys.argv) > 1:
+        cmd = sys.argv[1]
+        if cmd == "status":
+            s = advance_state(load_state(), now()); save_state(s)
+            print(json.dumps(s, indent=2)); return
+        if cmd == "reset":
+            if STATE_PATH.exists(): STATE_PATH.unlink()
+            print("State removed"); return
+    curses.wrapper(run)
+
+if __name__ == "__main__":
+    main()
